@@ -1,3 +1,4 @@
+# .github/workflows/bench.yml
 name: Benchmarks
 
 on:
@@ -5,16 +6,20 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
-  workflow_dispatch:        # allow manual runs from the Actions tab
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-C target-cpu=native"   # lets LLVM auto-vectorise for the host
+  RUSTFLAGS: "-C target-cpu=native"
 
 jobs:
   benchmark:
     name: Run criterion benchmarks
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      deployments: write
+      pages: write
 
     steps:
       - name: Checkout
@@ -36,25 +41,127 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-bench-
 
-      - name: Run benchmarks
-        # `-- --output-format bencher` emits lines that the store-results step understands
-        run: cargo bench --bench scoring_bench -- --output-format bencher | tee bench_output.txt
+      # ── Run all three bench binaries ─────────────────────────────────────────
+
+      - name: Run scoring benchmarks
+        run: |
+          cargo bench --bench scoring_bench -- --output-format bencher 2>&1 \
+            | tee scoring_raw.txt
+
+      - name: Run pipeline benchmarks
+        run: |
+          cargo bench --bench pipeline_bench -- --output-format bencher 2>&1 \
+            | tee pipeline_raw.txt
+
+      - name: Run thunder benchmarks
+        run: |
+          cargo bench --bench thunder_bench -- --output-format bencher 2>&1 \
+            | tee thunder_raw.txt
+
+      # ── Combine bencher-format output for tracking ────────────────────────────
+
+      - name: Combine bench output
+        run: |
+          cat scoring_raw.txt pipeline_raw.txt thunder_raw.txt > bench_output.txt
+          echo "=== Combined bench lines ==="
+          grep '^test ' bench_output.txt || true
+
+      # ── Store results with chart history ─────────────────────────────────────
 
       - name: Store benchmark results
         uses: benchmark-action/github-action-benchmark@v1
         with:
-          name: Scoring Benchmarks
+          name: X Algorithm Benchmarks
           tool: cargo
           output-file-path: bench_output.txt
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          auto-push: true                  # pushes to gh-pages branch
-          alert-threshold: "110%"          # flag regressions > 10%
+          auto-push: true
+          alert-threshold: "110%"
           comment-on-alert: true
-          fail-on-alert: false             # warn but don't break CI
+          fail-on-alert: false
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench
 
-      - name: Upload HTML report
+      # ── Publish markdown summary ──────────────────────────────────────────────
+
+      - name: Publish step summary
+        run: |
+          {
+            echo "## X Algorithm Bench — Build #${{ github.run_number }}"
+            echo ""
+            echo "**Branch:** \`${{ github.ref_name }}\`  **Commit:** \`${GITHUB_SHA:0:8}\`  **Runner:** \`ubuntu-latest\`  **RUSTFLAGS:** \`$RUSTFLAGS\`"
+            echo ""
+
+            emit_table() {
+              local label="$1"
+              local file="$2"
+              echo "### $label"
+              echo ""
+              echo "| Benchmark | ns/iter | ±variance |"
+              echo "|-----------|---------|-----------|"
+              grep '^test ' "$file" | sed 's/test //' | while IFS= read -r line; do
+                name=$(echo "$line" | sed 's/ \.\.\..*//')
+                ns=$(echo "$line"   | grep -oP '[0-9,]+ ns/iter' | tr -d ',')
+                var=$(echo "$line"  | grep -oP '\(\+/\- [0-9,]+\)' | tr -d '(+/- ,)' || echo "—")
+                echo "| \`$name\` | $ns | ±$var |"
+              done
+              echo ""
+            }
+
+            emit_table "Scoring / Ranking" scoring_raw.txt
+            emit_table "Filter Pipeline"    pipeline_raw.txt
+            emit_table "Thunder Post Store" thunder_raw.txt
+
+            echo "---"
+            echo ""
+            echo "### mid-math SIMD Opportunity Map"
+            echo ""
+            echo "| Hot Path | Current | SIMD Approach | Expected Gain |"
+            echo "|----------|---------|---------------|---------------|"
+            echo "| \`compute_weighted_score\` | 22 scalar mul-adds | 6× \`f32x4\` dot + hsum | 3–5× |"
+            echo "| \`offset_score\` (batch) | branch per candidate | \`f32x4::blend\` | ~2× |"
+            echo "| \`diversity_multiplier\` | \`powf\` per candidate | precomputed table + \`f32x4\` mul | 4–8× |"
+            echo "| \`bloom may_contain\` | scalar bit test loop | \`u32x4\` hash + bit extract | 2–3× |"
+            echo "| Score sort | scalar \`partial_cmp\` | SIMD pre-partition pass | 1.5–2× |"
+            echo ""
+            echo "> [📊 Full benchmark history →](https://${{ github.repository_owner }}.github.io/$(echo '${{ github.repository }}' | cut -d'/' -f2)/dev/bench/)"
+          } >> $GITHUB_STEP_SUMMARY
+
+      # ── Deploy landing page to gh-pages ──────────────────────────────────────
+
+      - name: Checkout gh-pages branch
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages-dir
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Copy landing page to gh-pages
+        run: |
+          cp .github/x-bench-index.html gh-pages-dir/index.html
+          cd gh-pages-dir
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git diff --cached --quiet || git commit -m "Update bench landing page [skip ci]"
+          git push
+
+      # ── Upload criterion HTML reports as artifact ─────────────────────────────
+
+      - name: Upload HTML reports
         uses: actions/upload-artifact@v4
         with:
-          name: criterion-report
+          name: criterion-report-${{ github.run_number }}
           path: target/criterion/
-          retention-days: 14
+          retention-days: 30
+
+      - name: Upload raw bench output
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-raw-${{ github.run_number }}
+          path: |
+            scoring_raw.txt
+            pipeline_raw.txt
+            thunder_raw.txt
+            bench_output.txt
+          retention-days: 30
