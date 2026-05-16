@@ -1,0 +1,31 @@
+[package]
+name        = "x-for-you-bench"
+version     = "0.1.0"
+edition     = "2021"
+description = "Criterion benchmarks for the X For You feed algorithm"
+
+[lib]
+name = "x_bench_lib"
+path = "benches/lib.rs"
+
+[[bench]]
+name    = "scoring_bench"
+harness = false
+
+[[bench]]
+name    = "pipeline_bench"
+harness = false
+
+[[bench]]
+name    = "thunder_bench"
+harness = false
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+dashmap   = "5"
+rand      = "0.8"
+
+[profile.bench]
+opt-level = 3
+lto       = "thin"
+codegen-units = 1
