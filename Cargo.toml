@@ -3,7 +3,6 @@ name        = "x-for-you-bench"
 version     = "0.1.0"
 edition     = "2021"
 description = "Criterion benchmarks for the X For You feed algorithm"
-# FIX: Prevents Cargo from treating `benches/lib.rs` as a benchmark file
 autobenches = false
 
 [lib]
@@ -22,7 +21,8 @@ harness = false
 name    = "thunder_bench"
 harness = false
 
-[dev-dependencies]
+# FIX: Changed from [dev-dependencies] to [dependencies] so the [lib] can access them
+[dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 dashmap   = "5"
 rand      = "0.8"
