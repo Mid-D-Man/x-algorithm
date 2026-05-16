@@ -3,6 +3,8 @@ name        = "x-for-you-bench"
 version     = "0.1.0"
 edition     = "2021"
 description = "Criterion benchmarks for the X For You feed algorithm"
+# FIX: Prevents Cargo from treating `benches/lib.rs` as a benchmark file
+autobenches = false
 
 [lib]
 name = "x_bench_lib"
