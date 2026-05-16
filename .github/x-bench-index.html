@@ -1,0 +1,515 @@
+<!-- .github/x-bench-index.html -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>X For You — Benchmark Dashboard</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: #0d1117; color: #e6edf3;
+      min-height: 100vh; padding: 36px 24px;
+    }
+    .container { max-width: 1100px; margin: 0 auto; }
+
+    header {
+      border-bottom: 2px solid #3fb950;
+      padding-bottom: 18px; margin-bottom: 32px;
+    }
+    header h1 { font-size: 1.8rem; font-weight: 700; color: #3fb950; }
+    header h1 span { color: #e6edf3; }
+    header p { color: #8b949e; font-size: 0.83rem; margin-top: 6px; }
+
+    .section-label {
+      font-size: 0.70rem; text-transform: uppercase; letter-spacing: 0.8px;
+      color: #484f58; margin: 28px 0 12px;
+      padding-bottom: 6px; border-bottom: 1px solid #21262d;
+    }
+
+    /* ── Quick-link cards ── */
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+      gap: 14px; margin-bottom: 4px;
+    }
+    .card {
+      background: #161b22; border: 1px solid #30363d; border-radius: 10px;
+      padding: 20px 18px; text-decoration: none; color: inherit;
+      transition: border-color .15s, background .15s;
+      display: flex; flex-direction: column; gap: 8px;
+    }
+    .card:hover { border-color: #3fb950; background: #1c2128; }
+    .card-icon  { font-size: 1.6rem; line-height: 1; }
+    .card-title { font-size: 0.95rem; font-weight: 700; }
+    .card-desc  { font-size: 0.73rem; color: #8b949e; flex: 1; }
+
+    /* ── Bench group tables ── */
+    .bench-group {
+      background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+      margin-bottom: 16px; overflow: hidden;
+    }
+    .bench-group-header {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 16px; cursor: pointer; user-select: none;
+      transition: background .15s;
+    }
+    .bench-group-header:hover { background: #1c2128; }
+    .bench-chevron { color: #484f58; font-size: .8rem; transition: transform .2s; }
+    .bench-group.open .bench-chevron { transform: rotate(90deg); }
+    .bench-group-name  { font-weight: 700; font-size: .95rem; flex: 1; }
+    .bench-group-meta  { font-size: .78rem; color: #8b949e; }
+    .bench-group-body  { display: none; border-top: 1px solid #30363d; }
+    .bench-group.open .bench-group-body { display: block; }
+
+    table { width: 100%; border-collapse: collapse; font-size: .82rem; }
+    thead th {
+      padding: 8px 14px; text-align: left; color: #484f58;
+      font-size: .70rem; text-transform: uppercase; letter-spacing: .5px;
+      border-bottom: 1px solid #30363d; background: #0d1117; white-space: nowrap;
+    }
+    tbody tr { border-bottom: 1px solid #21262d; transition: background .1s; }
+    tbody tr:last-child { border-bottom: none; }
+    tbody tr:hover td { background: #1c2128; }
+    td { padding: 9px 14px; vertical-align: middle; }
+    .mono { font-family: 'SFMono-Regular', Consolas, monospace; font-size: .80rem; }
+    .val  { font-family: 'SFMono-Regular', Consolas, monospace; font-weight: 700; color: #3fb950; }
+    .tag  {
+      display: inline-block; font-size: .63rem; font-weight: 700;
+      text-transform: uppercase; padding: 2px 7px; border-radius: 4px;
+    }
+    .tag-simd   { background: #0f1e3a; color: #79c0ff; border: 1px solid #1f4080; }
+    .tag-hot    { background: #2a1500; color: #e05d20; border: 1px solid #7d3800; }
+    .tag-medium { background: #1a1500; color: #e3b341; border: 1px solid #5a4500; }
+    .tag-scalar { background: #1c2128; color: #484f58; border: 1px solid #30363d; }
+
+    /* ── SIMD opportunity map ── */
+    .simd-map { width: 100%; border-collapse: collapse; font-size: .83rem; }
+    .simd-map th {
+      padding: 9px 14px; text-align: left; color: #484f58;
+      font-size: .70rem; text-transform: uppercase; letter-spacing: .5px;
+      border-bottom: 1px solid #30363d; background: #0d1117;
+    }
+    .simd-map td { padding: 10px 14px; border-bottom: 1px solid #21262d; }
+    .simd-map tr:last-child td { border-bottom: none; }
+    .simd-map tr:hover td { background: #1c2128; }
+    .gain-high   { color: #3fb950; font-weight: 700; }
+    .gain-medium { color: #e3b341; font-weight: 700; }
+    .gain-low    { color: #8b949e; }
+
+    /* ── Chart container ── */
+    .chart-frame {
+      width: 100%; height: 600px; border: none;
+      border-radius: 8px; background: #161b22;
+    }
+    .chart-placeholder {
+      background: #161b22; border: 1px solid #30363d; border-radius: 8px;
+      padding: 48px 24px; text-align: center; color: #484f58; font-size: .85rem;
+    }
+
+    /* ── Alert regression banner ── */
+    #regression-banner {
+      display: none;
+      background: #2a0f0f; border: 1px solid #f85149; border-radius: 8px;
+      padding: 12px 16px; margin-bottom: 20px;
+      color: #f85149; font-size: .85rem; font-weight: 600;
+    }
+
+    footer {
+      margin-top: 48px; font-size: .73rem; color: #484f58;
+      text-align: center; padding-top: 14px; border-top: 1px solid #21262d;
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <h1>🐦 X For You <span>— Benchmark Dashboard</span></h1>
+    <p>Criterion benchmarks for the scoring, pipeline, and Thunder hot paths · Tracks regressions &gt;10%</p>
+  </header>
+
+  <div id="regression-banner">⚠ Regression detected — one or more benchmarks exceeded the 110% alert threshold.</div>
+
+  <!-- ── Quick links ──────────────────────────────────────────────────────── -->
+  <div class="section-label">Quick Links</div>
+  <div class="card-grid">
+    <a class="card" href="dev/bench/">
+      <div class="card-icon">📈</div>
+      <div class="card-title">Benchmark History</div>
+      <div class="card-desc">Interactive chart of all tracked benchmarks across every CI run. Spot regressions at a glance.</div>
+    </a>
+    <a class="card" href="https://github.com/Mid-D-Man/x-for-you-bench/actions">
+      <div class="card-icon">⚙️</div>
+      <div class="card-title">CI Actions</div>
+      <div class="card-desc">Run history, step summaries, and artifact downloads (Criterion HTML reports).</div>
+    </a>
+    <a class="card" href="https://github.com/Mid-D-Man/x-for-you-bench">
+      <div class="card-icon">📦</div>
+      <div class="card-title">Source Repository</div>
+      <div class="card-desc">Benchmark harness, lib mirrors, and the README describing the full algorithm architecture.</div>
+    </a>
+    <a class="card" href="https://github.com/Mid-D-Man/mid-engine">
+      <div class="card-icon">📐</div>
+      <div class="card-title">mid-math (SIMD)</div>
+      <div class="card-desc">The math library targeted for SIMD optimisation of scoring hot paths. f32x4, Vec3x4, SSE2.</div>
+    </a>
+  </div>
+
+  <!-- ── Benchmark history chart ─────────────────────────────────────────── -->
+  <div class="section-label">Benchmark History — All Runs</div>
+  <div id="chart-area">
+    <div class="chart-placeholder" id="chart-placeholder">
+      ⏳ Benchmark history loads from <code>dev/bench/index.html</code> after the first CI run pushes data.
+      <br/><br/>
+      <a href="dev/bench/" style="color:#3fb950">Open full chart →</a>
+    </div>
+  </div>
+
+  <!-- ── Bench groups ────────────────────────────────────────────────────── -->
+  <div class="section-label">Latest Results by Group</div>
+
+  <div class="bench-group open" id="group-scoring">
+    <div class="bench-group-header" onclick="this.closest('.bench-group').classList.toggle('open')">
+      <span class="bench-chevron">▶</span>
+      <span class="bench-group-name">scoring/ — Ranking Hot Paths</span>
+      <span class="bench-group-meta" id="meta-scoring">loaded from CI data</span>
+    </div>
+    <div class="bench-group-body">
+      <table>
+        <thead><tr>
+          <th>Benchmark</th><th>ns/iter</th><th>±</th><th>Notes</th>
+        </tr></thead>
+        <tbody id="tbody-scoring">
+          <tr>
+            <td class="mono">scoring/weighted_score/single_candidate</td>
+            <td class="val">—</td><td>—</td>
+            <td><span class="tag tag-hot">hottest</span> <span class="tag tag-simd">f32x4 target</span></td>
+          </tr>
+          <tr>
+            <td class="mono">scoring/weighted_score/batch_500</td>
+            <td class="val">—</td><td>—</td>
+            <td><span class="tag tag-hot">hot</span></td>
+          </tr>
+          <tr>
+            <td class="mono">scoring/weighted_score/batch_2000</td>
+            <td class="val">—</td><td>—</td>
+            <td><span class="tag tag-hot">hot</span></td>
+          </tr>
+          <tr>
+            <td class="mono">scoring/author_diversity/500_candidates</td>
+            <td class="val">—</td><td>—</td>
+            <td><span class="tag tag-medium">powf target</span></td>
+          </tr>
+          <tr>
+            <td class="mono">scoring/author_diversity/2000_candidates</td>
+            <td class="val">—</td><td>—</td>
+            <td></td>
+          </tr>
+          <tr>
+            <td class="mono">scoring/offset_score/1000_scores</td>
+            <td class="val">—</td><td>—</td>
+            <td><span class="tag tag-simd">blend target</span></td>
+          </tr>
+          <tr>
+            <td class="mono">scoring/sort_candidates/sort_500</td>
+            <td class="val">—</td><td>—</td>
+            <td><span class="tag tag-scalar">scalar sort</span></td>
+          </tr>
+          <tr>
+            <td class="mono">scoring/sort_candidates/sort_1000</td>
+            <td class="val">—</td><td>—</td>
+            <td></td>
+          </tr>
+          <tr>
+            <td class="mono">scoring/sort_candidates/sort_2000</td>
+            <td class="val">—</td><td>—</td>
+            <td></td>
+          </tr>
+          <tr>
+            <td class="mono">scoring/full_pipeline/2000_candidates_to_top50</td>
+            <td class="val">—</td><td>—</td>
+            <td><span class="tag tag-hot">end-to-end</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="bench-group open" id="group-pipeline">
+    <div class="bench-group-header" onclick="this.closest('.bench-group').classList.toggle('open')">
+      <span class="bench-chevron">▶</span>
+      <span class="bench-group-name">pipeline/ — Filter Stage</span>
+      <span class="bench-group-meta" id="meta-pipeline">loaded from CI data</span>
+    </div>
+    <div class="bench-group-body">
+      <table>
+        <thead><tr>
+          <th>Benchmark</th><th>ns/iter</th><th>±</th><th>Notes</th>
+        </tr></thead>
+        <tbody id="tbody-pipeline">
+          <tr>
+            <td class="mono">pipeline/bloom_filter/2000_lookups</td>
+            <td class="val">—</td><td>—</td>
+            <td><span class="tag tag-simd">u32x4 hash target</span></td>
+          </tr>
+          <tr>
+            <td class="mono">pipeline/bloom_filter/500_lookups</td>
+            <td class="val">—</td><td>—</td>
+            <td></td>
+          </tr>
+          <tr>
+            <td class="mono">pipeline/drop_duplicates/2200_with_200_dupes</td>
+            <td class="val">—</td><td>—</td>
+            <td><span class="tag tag-scalar">HashSet insert</span></td>
+          </tr>
+          <tr>
+            <td class="mono">pipeline/dedup_conversation/2000_candidates_30pct_replies</td>
+            <td class="val">—</td><td>—</td>
+            <td><span class="tag tag-scalar">HashMap walk</span></td>
+          </tr>
+          <tr>
+            <td class="mono">pipeline/socialgraph_filter/2000_candidates</td>
+            <td class="val">—</td><td>—</td>
+            <td><span class="tag tag-scalar">HashSet lookup</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="bench-group open" id="group-thunder">
+    <div class="bench-group-header" onclick="this.closest('.bench-group').classList.toggle('open')">
+      <span class="bench-chevron">▶</span>
+      <span class="bench-group-name">thunder/ — In-Memory Post Store</span>
+      <span class="bench-group-meta" id="meta-thunder">loaded from CI data</span>
+    </div>
+    <div class="bench-group-body">
+      <table>
+        <thead><tr>
+          <th>Benchmark</th><th>ns/iter</th><th>±</th><th>Notes</th>
+        </tr></thead>
+        <tbody id="tbody-thunder">
+          <tr>
+            <td class="mono">thunder/score_recent/10000_posts_top_200</td>
+            <td class="val">—</td><td>—</td>
+            <td><span class="tag tag-scalar">sort by timestamp</span></td>
+          </tr>
+          <tr>
+            <td class="mono">thunder/score_recent/50000_posts_top_200</td>
+            <td class="val">—</td><td>—</td>
+            <td></td>
+          </tr>
+          <tr>
+            <td class="mono">thunder/score_recent/100000_posts_top_400</td>
+            <td class="val">—</td><td>—</td>
+            <td></td>
+          </tr>
+          <tr>
+            <td class="mono">thunder/dashmap_post_store/500_following_20_posts_each</td>
+            <td class="val">—</td><td>—</td>
+            <td><span class="tag tag-hot">double-lookup bottleneck</span></td>
+          </tr>
+          <tr>
+            <td class="mono">thunder/trim_old_posts/100k_posts_none_expired</td>
+            <td class="val">—</td><td>—</td>
+            <td></td>
+          </tr>
+          <tr>
+            <td class="mono">thunder/trim_old_posts/100k_posts_90pct_expired</td>
+            <td class="val">—</td><td>—</td>
+            <td></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── mid-math SIMD opportunity map ─────────────────────────────────── -->
+  <div class="section-label">mid-math SIMD Opportunity Map</div>
+  <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;overflow:hidden;margin-bottom:0">
+    <table class="simd-map">
+      <thead><tr>
+        <th>Hot Path</th>
+        <th>File</th>
+        <th>Current Pattern</th>
+        <th>mid-math Approach</th>
+        <th>Expected Gain</th>
+        <th>Priority</th>
+      </tr></thead>
+      <tbody>
+        <tr>
+          <td class="mono">compute_weighted_score</td>
+          <td class="mono">scoring_bench.rs</td>
+          <td>22 scalar <code>mul + add</code></td>
+          <td>Pack scores→<code>[f32;24]</code>, 6× <code>f32x4</code> mul + hsum = dot product</td>
+          <td class="gain-high">3–5×</td>
+          <td><span style="color:#f85149;font-weight:700">P1</span></td>
+        </tr>
+        <tr>
+          <td class="mono">offset_score (batch)</td>
+          <td class="mono">scoring_bench.rs</td>
+          <td>branch per candidate on sign</td>
+          <td><code>f32x4::blend</code> for branchless ternary across 4 candidates</td>
+          <td class="gain-high">~2×</td>
+          <td><span style="color:#f85149;font-weight:700">P1</span></td>
+        </tr>
+        <tr>
+          <td class="mono">diversity_multiplier (powf)</td>
+          <td class="mono">scoring_bench.rs</td>
+          <td><code>decay.powf(position as f64)</code> per candidate</td>
+          <td>Precompute <code>[f64;64]</code> table, index by position; final mul via <code>f32x4</code></td>
+          <td class="gain-high">4–8×</td>
+          <td><span style="color:#e3b341;font-weight:700">P2</span></td>
+        </tr>
+        <tr>
+          <td class="mono">bloom may_contain</td>
+          <td class="mono">pipeline_bench.rs</td>
+          <td>scalar hash loop × <code>num_hashes</code></td>
+          <td>Unroll 4 hashes with <code>u32x4</code> multiply + bit-extract</td>
+          <td class="gain-medium">2–3×</td>
+          <td><span style="color:#e3b341;font-weight:700">P2</span></td>
+        </tr>
+        <tr>
+          <td class="mono">score_recent sort</td>
+          <td class="mono">thunder_bench.rs</td>
+          <td><code>sort_unstable_by_key</code> on <code>created_at: i64</code></td>
+          <td>SIMD-friendly radix sort pass using <code>i32x4</code> comparisons on upper 32 bits</td>
+          <td class="gain-medium">1.5–2×</td>
+          <td><span style="color:#484f58;font-weight:700">P3</span></td>
+        </tr>
+        <tr>
+          <td class="mono">full_pipeline batch score</td>
+          <td class="mono">scoring_bench.rs</td>
+          <td>sequential scalar loop over 2000 candidates</td>
+          <td>Process 4 candidates simultaneously via SoA <code>PhoenixScores</code> → <code>Vec3x4</code> pattern</td>
+          <td class="gain-high">3–4×</td>
+          <td><span style="color:#e3b341;font-weight:700">P2</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ── Architecture reminder ─────────────────────────────────────────── -->
+  <div class="section-label">Algorithm Pipeline (reference)</div>
+  <div style="background:#161b22;border:1px solid #30363d;border-radius:8px;
+    padding:16px 18px;font-size:.80rem;color:#8b949e;font-family:monospace;">
+    <pre style="overflow-x:auto;white-space:pre">
+Thunder (in-network) ──┐
+                        ├──► Hydrate ──► Filter ──► Phoenix Scorer ──► Weighted Scorer ──► Diversity Scorer ──► Sort ──► Top-K
+Phoenix Retrieval ─────┘
+                               │               │              │                   │                   │
+                               │         HashSet/Bloom      ML predictions     22× mul-add         powf decay
+                               │         lookups            (cached)           ← SIMD P1 →        ← SIMD P2 →
+                        DashMap
+                        double-lookup
+                        ← bottleneck →
+    </pre>
+  </div>
+
+  <footer>
+    X For You Bench · MidManStudio · Apache 2.0 ·
+    <a href="dev/bench/" style="color:#3fb950">Benchmark History</a> ·
+    <a href="https://github.com/Mid-D-Man/mid-engine" style="color:#3fb950">mid-math</a>
+  </footer>
+</div>
+
+<script>
+// Try to load the latest bench data from github-action-benchmark's data.js
+// It lives at dev/bench/data.js on gh-pages and exposes window.BENCHMARK_DATA
+(function () {
+  const script = document.createElement('script');
+  script.src = 'dev/bench/data.js';
+  script.onload = function () {
+    if (!window.BENCHMARK_DATA) return;
+    const latest = getLatestRun(window.BENCHMARK_DATA.entries);
+    if (!latest) return;
+
+    document.getElementById('chart-placeholder')?.remove();
+    const frame = document.createElement('iframe');
+    frame.src        = 'dev/bench/';
+    frame.className  = 'chart-frame';
+    frame.title      = 'Benchmark History';
+    document.getElementById('chart-area').appendChild(frame);
+
+    populateTables(latest);
+    checkRegressions(window.BENCHMARK_DATA.entries);
+  };
+  script.onerror = function () {
+    // No data yet — placeholder stays
+  };
+  document.head.appendChild(script);
+
+  function getLatestRun(entries) {
+    if (!entries || !entries.length) return null;
+    const last = entries[entries.length - 1];
+    return last ? last.benches : null;
+  }
+
+  function populateTables(benches) {
+    const groups = { scoring: [], pipeline: [], thunder: [] };
+    benches.forEach(b => {
+      const name = b.name || '';
+      if (name.startsWith('scoring/'))  groups.scoring.push(b);
+      if (name.startsWith('pipeline/')) groups.pipeline.push(b);
+      if (name.startsWith('thunder/'))  groups.thunder.push(b);
+    });
+
+    ['scoring', 'pipeline', 'thunder'].forEach(g => {
+      const tbody = document.getElementById('tbody-' + g);
+      const meta  = document.getElementById('meta-' + g);
+      if (!tbody || !groups[g].length) return;
+
+      meta.textContent = groups[g].length + ' benchmarks — live data';
+      tbody.innerHTML = '';
+
+      groups[g].forEach(b => {
+        const ns  = typeof b.value === 'number' ? b.value.toLocaleString() + ' ns' : '—';
+        const rng = b.range ? '±' + b.range : '—';
+        const tr  = document.createElement('tr');
+        tr.innerHTML = `
+          <td class="mono">${esc(b.name)}</td>
+          <td class="val">${ns}</td>
+          <td style="color:#484f58;font-size:.75rem;font-family:monospace">${rng}</td>
+          <td></td>`;
+        tbody.appendChild(tr);
+      });
+    });
+  }
+
+  function checkRegressions(entries) {
+    if (!entries || entries.length < 2) return;
+    const prev   = entries[entries.length - 2].benches;
+    const curr   = entries[entries.length - 1].benches;
+    const prevMap = {};
+    prev.forEach(b => { prevMap[b.name] = b.value; });
+
+    const regressions = curr.filter(b => {
+      const p = prevMap[b.name];
+      return p && b.value > p * 1.1;
+    });
+
+    if (regressions.length > 0) {
+      const banner = document.getElementById('regression-banner');
+      banner.style.display = 'block';
+      banner.textContent = '⚠ Regression detected: '
+        + regressions.map(b => b.name).join(', ')
+        + ' exceeded 110% of previous run.';
+    }
+  }
+
+  function esc(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+})();
+
+// Toggle groups open/closed
+document.querySelectorAll('.bench-group-header').forEach(h => {
+  h.addEventListener('click', () => {
+    h.closest('.bench-group').classList.toggle('open');
+  });
+});
+</script>
+</body>
+  </html>
