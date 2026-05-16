@@ -1,0 +1,51 @@
+// =============================================================================
+// MIDN CORE — PROJECT SCAFFOLD  ·  DixScript v1.0.0
+// =============================================================================
+// Generate: Actions → "Generate project structure" → Run workflow
+// Or local:  node bin/mdix-scaffold.js generate
+// NOTE: No .github files are included — manage workflows separately.
+// =============================================================================
+
+@CONFIG(
+  version    -> "1.0.0"
+  author     -> "MidManStudio"
+  features   -> "quickfuncs,data"
+  debug_mode -> "off"
+)
+
+@QUICKFUNCS(
+  ~f<object>(name, ext) {
+    return {
+      name    = name
+      ext     = ext
+      content = ""
+    }
+  }
+
+  ~fc<object>(name, ext, content) {
+    return {
+      name    = name
+      ext     = ext
+      content = content
+    }
+  }
+
+  ~gitkeep<object>() {
+    return {
+      name    = ".gitkeep"
+      ext     = ""
+      content = ""
+    }
+  }
+
+  ~hidden<object>(segment) {
+    return {
+      segment = segment
+    }
+  }
+)
+
+@DATA(
+  
+
+  )
