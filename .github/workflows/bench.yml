@@ -9,9 +9,10 @@ on:
   workflow_dispatch:
 
 env:
-  # FIX: Set to never so regex parsers don't fail on ANSI color codes
   CARGO_TERM_COLOR: never
   RUSTFLAGS: "-C target-cpu=native"
+  # FIX: Forces the runner to execute Actions using Node 24, avoiding the Node 20 deprecation cutoff
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   benchmark:
