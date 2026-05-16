@@ -11,7 +11,6 @@ on:
 env:
   CARGO_TERM_COLOR: never
   RUSTFLAGS: "-C target-cpu=native"
-  # FIX: Forces the runner to execute Actions using Node 24, avoiding the Node 20 deprecation cutoff
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
@@ -21,7 +20,6 @@ jobs:
     permissions:
       contents: write
       deployments: write
-      pages: write
 
     steps:
       - name: Checkout
@@ -29,8 +27,6 @@ jobs:
 
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
 
       - name: Cache cargo registry + build artefacts
         uses: actions/cache@v4
@@ -43,32 +39,60 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-bench-
 
-      # ── Run all three bench binaries ─────────────────────────────────────────
+      # ── Compile all bench binaries once, loudly, into the log ────────────────
+      # This separates build noise from benchmark output so later tee calls
+      # only capture criterion's stdout (the bencher result lines).
+
+      - name: Compile bench binaries
+        run: cargo bench --no-run
+
+      # ── Run each bench binary — stdout → tee, build stderr already done ──────
+      # No 2>&1: cargo build output is already cached/done; criterion writes
+      # bencher lines to stdout only.  pipefail ensures a bench crash fails
+      # the step instead of silently producing an empty file.
 
       - name: Run scoring benchmarks
         run: |
-          cargo bench --bench scoring_bench -- --output-format bencher 2>&1 \
+          set -o pipefail
+          cargo bench --bench scoring_bench -- --output-format bencher \
             | tee scoring_raw.txt
 
       - name: Run pipeline benchmarks
         run: |
-          cargo bench --bench pipeline_bench -- --output-format bencher 2>&1 \
+          set -o pipefail
+          cargo bench --bench pipeline_bench -- --output-format bencher \
             | tee pipeline_raw.txt
 
       - name: Run thunder benchmarks
         run: |
-          cargo bench --bench thunder_bench -- --output-format bencher 2>&1 \
+          set -o pipefail
+          cargo bench --bench thunder_bench -- --output-format bencher \
             | tee thunder_raw.txt
 
-      # ── Combine bencher-format output for tracking ────────────────────────────
+      # ── Extract only bencher lines and validate ───────────────────────────────
+      # criterion stdout in bencher mode contains both progress lines and the
+      # final "test NAME ... bench: X ns/iter" results.  We extract only the
+      # latter into bench_output.txt so the action gets a clean input.
 
-      - name: Combine bench output
+      - name: Extract and validate bench results
         run: |
-          cat scoring_raw.txt pipeline_raw.txt thunder_raw.txt > bench_output.txt
-          echo "=== Combined bench lines ==="
-          grep '^test ' bench_output.txt || true
+          grep '^test ' scoring_raw.txt pipeline_raw.txt thunder_raw.txt \
+            > bench_output.txt || true
 
-      # ── Store results with chart history ─────────────────────────────────────
+          line_count=$(wc -l < bench_output.txt)
+          echo "Captured $line_count benchmark result lines:"
+          cat bench_output.txt
+
+          if [ "$line_count" -eq 0 ]; then
+            echo ""
+            echo "ERROR: No benchmark result lines found — dumping raw files for diagnosis:"
+            echo "=== scoring_raw.txt ===" && cat scoring_raw.txt
+            echo "=== pipeline_raw.txt ===" && cat pipeline_raw.txt
+            echo "=== thunder_raw.txt ===" && cat thunder_raw.txt
+            exit 1
+          fi
+
+      # ── Store results and push history to gh-pages ────────────────────────────
 
       - name: Store benchmark results
         uses: benchmark-action/github-action-benchmark@v1
@@ -84,34 +108,59 @@ jobs:
           gh-pages-branch: gh-pages
           benchmark-data-dir-path: dev/bench
 
-      # ── Publish markdown summary ──────────────────────────────────────────────
+      # ── Deploy landing page — runs after benchmark-action guarantees gh-pages exists
+
+      - name: Checkout gh-pages branch
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: gh-pages-dir
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push landing page to gh-pages
+        run: |
+          cp .github/x-bench-index.html gh-pages-dir/index.html
+          cd gh-pages-dir
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add index.html
+          git diff --cached --quiet \
+            || git commit -m "Update bench landing page [skip ci]"
+          git push
+
+      # ── Publish step summary ──────────────────────────────────────────────────
 
       - name: Publish step summary
+        if: always()
         run: |
           {
             echo "## X Algorithm Bench — Build #${{ github.run_number }}"
             echo ""
-            echo "**Branch:** \`${{ github.ref_name }}\`  **Commit:** \`${GITHUB_SHA:0:8}\`  **Runner:** \`ubuntu-latest\`  **RUSTFLAGS:** \`$RUSTFLAGS\`"
+            echo "**Branch:** \`${{ github.ref_name }}\`  **Commit:** \`${GITHUB_SHA:0:8}\`  **RUSTFLAGS:** \`$RUSTFLAGS\`"
             echo ""
 
             emit_table() {
-              local label="$1"
-              local file="$2"
+              local label="$1" file="$2"
               echo "### $label"
               echo ""
               echo "| Benchmark | ns/iter | ±variance |"
               echo "|-----------|---------|-----------|"
-              grep '^test ' "$file" | sed 's/test //' | while IFS= read -r line; do
-                name=$(echo "$line" | sed 's/ \.\.\..*//')
-                ns=$(echo "$line"   | grep -oP '[0-9,]+ ns/iter' | tr -d ',')
-                var=$(echo "$line"  | grep -oP '\(\+/\- [0-9,]+\)' | tr -d '(+/- ,)' || echo "—")
-                echo "| \`$name\` | $ns | ±$var |"
-              done
+              if [ ! -s "$file" ]; then
+                echo "| *(no results)* | — | — |"
+              else
+                grep '^test ' "$file" | while IFS= read -r line; do
+                  name=$(echo "$line" | sed 's/^test //' | sed 's/ \.\.\..*//')
+                  ns=$(echo "$line"   | grep -oP '[0-9,]+ ns/iter' | head -1 | tr -d ',')
+                  var=$(echo "$line"  | grep -oP '\(\+/- [0-9,]+\)' | head -1 \
+                          | tr -d '()/+ ' | sed 's/-//' || echo "—")
+                  echo "| \`${name}\` | ${ns:-—} | ±${var:-—} |"
+                done
+              fi
               echo ""
             }
 
             emit_table "Scoring / Ranking" scoring_raw.txt
-            emit_table "Filter Pipeline"    pipeline_raw.txt
+            emit_table "Filter Pipeline"   pipeline_raw.txt
             emit_table "Thunder Post Store" thunder_raw.txt
 
             echo "---"
@@ -121,36 +170,19 @@ jobs:
             echo "| Hot Path | Current | SIMD Approach | Expected Gain |"
             echo "|----------|---------|---------------|---------------|"
             echo "| \`compute_weighted_score\` | 22 scalar mul-adds | 6× \`f32x4\` dot + hsum | 3–5× |"
-            echo "| \`offset_score\` (batch) | branch per candidate | \`f32x4::blend\` | ~2× |"
+            echo "| \`offset_score\` (batch) | branch per candidate | \`f32x4::blend\` branchless | ~2× |"
             echo "| \`diversity_multiplier\` | \`powf\` per candidate | precomputed table + \`f32x4\` mul | 4–8× |"
-            echo "| \`bloom may_contain\` | scalar bit test loop | \`u32x4\` hash + bit extract | 2–3× |"
-            echo "| Score sort | scalar \`partial_cmp\` | SIMD pre-partition pass | 1.5–2× |"
+            echo "| \`bloom may_contain\` | scalar hash loop | \`u32x4\` multiply + bit-extract | 2–3× |"
+            echo "| Score sort | scalar \`partial_cmp\` | SIMD radix pre-partition | 1.5–2× |"
             echo ""
-            echo "> [📊 Full benchmark history →](https://${{ github.repository_owner }}.github.io/$(echo '${{ github.repository }}' | cut -d'/' -f2)/dev/bench/)"
+            repo_name=$(echo '${{ github.repository }}' | cut -d'/' -f2)
+            echo "> [📊 Full benchmark history](https://${{ github.repository_owner }}.github.io/${repo_name}/dev/bench/)"
           } >> $GITHUB_STEP_SUMMARY
 
-      # ── Deploy landing page to gh-pages ──────────────────────────────────────
+      # ── Artifacts ─────────────────────────────────────────────────────────────
 
-      - name: Checkout gh-pages branch
-        uses: actions/checkout@v4
-        with:
-          ref: gh-pages
-          path: gh-pages-dir
-          token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Copy landing page to gh-pages
-        run: |
-          cp .github/x-bench-index.html gh-pages-dir/index.html
-          cd gh-pages-dir
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add index.html
-          git diff --cached --quiet || git commit -m "Update bench landing page [skip ci]"
-          git push
-
-      # ── Upload criterion HTML reports as artifact ─────────────────────────────
-
-      - name: Upload HTML reports
+      - name: Upload criterion HTML reports
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: criterion-report-${{ github.run_number }}
@@ -158,6 +190,7 @@ jobs:
           retention-days: 30
 
       - name: Upload raw bench output
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: bench-raw-${{ github.run_number }}
