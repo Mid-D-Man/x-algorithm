@@ -21,11 +21,11 @@ harness = false
 name    = "thunder_bench"
 harness = false
 
-# FIX: Changed from [dev-dependencies] to [dependencies] so the [lib] can access them
 [dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
 dashmap   = "5"
-rand      = "0.8"
+# FIX: Enabled the "small_rng" feature so SmallRng can be compiled inside lib.rs
+rand      = { version = "0.8", features = ["small_rng"] }
 
 [profile.bench]
 opt-level = 3
