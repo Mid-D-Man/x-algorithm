@@ -9,7 +9,8 @@ on:
   workflow_dispatch:
 
 env:
-  CARGO_TERM_COLOR: always
+  # FIX: Set to never so regex parsers don't fail on ANSI color codes
+  CARGO_TERM_COLOR: never
   RUSTFLAGS: "-C target-cpu=native"
 
 jobs:
