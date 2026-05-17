@@ -1,4 +1,3 @@
-# .github/workflows/bench.yml
 name: Benchmarks
 
 on:
@@ -76,7 +75,7 @@ jobs:
 
       - name: Extract and validate bench results
         run: |
-          grep '^test ' scoring_raw.txt pipeline_raw.txt thunder_raw.txt \
+          grep -h '^test ' scoring_raw.txt pipeline_raw.txt thunder_raw.txt \
             > bench_output.txt || true
 
           line_count=$(wc -l < bench_output.txt)
@@ -84,11 +83,8 @@ jobs:
           cat bench_output.txt
 
           if [ "$line_count" -eq 0 ]; then
-            echo ""
-            echo "ERROR: No benchmark result lines found — dumping raw files for diagnosis:"
-            echo "=== scoring_raw.txt ===" && cat scoring_raw.txt
-            echo "=== pipeline_raw.txt ===" && cat pipeline_raw.txt
-            echo "=== thunder_raw.txt ===" && cat thunder_raw.txt
+            echo "ERROR: No benchmark results found!"
+            cat scoring_raw.txt pipeline_raw.txt thunder_raw.txt
             exit 1
           fi
 
