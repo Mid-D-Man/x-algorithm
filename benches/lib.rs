@@ -200,25 +200,25 @@ use rand::rngs::SmallRng;
 pub fn make_candidates(n: usize) -> Vec<PostCandidate> {
     let mut rng = SmallRng::seed_from_u64(42);
     (0..n).map(|i| {
-        let score = || -> Option<f64> { Some(rng.gen::<f64>() * 0.1) };
+        let mut score = || -> Option<f64> { Some(rng.gen::<f64>() * 0.1) };
         PostCandidate {
             tweet_id:   i as u64 + 1,
-            author_id:  (i % 200) as u64 + 1, // ~200 unique authors for diversity test
+            author_id:  (i % 200) as u64 + 1,
             in_network: Some(i % 3 != 0),
             min_video_duration_ms: if i % 5 == 0 { Some(10_000) } else { None },
             phoenix_scores: PhoenixScores {
-                favorite_score:      score(),
-                reply_score:         score(),
-                retweet_score:       score(),
-                photo_expand_score:  score(),
-                click_score:         score(),
-                profile_click_score: score(),
-                vqv_score:           score(),
-                share_score:         score(),
-                dwell_score:         score(),
-                follow_author_score: score(),
+                favorite_score:       score(),
+                reply_score:          score(),
+                retweet_score:        score(),
+                photo_expand_score:   score(),
+                click_score:          score(),
+                profile_click_score:  score(),
+                vqv_score:            score(),
+                share_score:          score(),
+                dwell_score:          score(),
+                follow_author_score:  score(),
                 not_interested_score: Some(-rng.gen::<f64>() * 0.05),
-                report_score:        Some(-rng.gen::<f64>() * 0.01),
+                report_score:         Some(-rng.gen::<f64>() * 0.01),
                 ..Default::default()
             },
             ..Default::default()
