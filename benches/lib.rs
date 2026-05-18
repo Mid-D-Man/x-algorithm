@@ -181,24 +181,34 @@ pub fn diversity_multiplier(decay: f64, floor: f64, position: usize) -> f64 {
     (1.0 - floor) * decay.powf(position as f64) + floor
 }
 
-// ── Auto-vectorised weighted score (f32 promotion) ────────────────────────────
+// ── Auto-vectorised weighted score (f32 promotion, AVX2 path) ────────────────
 //
-// Widening scores from f64 → f32 and packing into a fixed-size array turns
-// the 22 multiply-adds into a textbook dot-product reduction. LLVM recognises
-// this pattern and — with `RUSTFLAGS="-C target-cpu=native"` on the CI runner
-// (Intel Xeon, AVX2) — emits 8-wide `vfmadd231ps` instructions, giving
-// roughly 3–5× throughput vs the scalar f64 version with no unsafe required.
+// Widening scores from f64 → f32 and packing into a 22-element array turns
+// the multiply-adds into a textbook dot-product that LLVM auto-vectorises.
 //
-// Why not hand-written SSE2?
-// Rust 1.78+ emits `ud2` (SIGILL) when an intrinsic annotated with
-// `#[target_feature(enable = "sse")]` is called from a function that lacks
-// the matching attribute — even on x86_64 where SSE2 is baseline. Adding the
-// attribute works but is fragile; letting LLVM auto-vectorize is both safer
-// and produces wider code on the CI CPU.
+// Safety / SIGILL note
+// ────────────────────
+// `target-cpu=native` can instruct LLVM to emit AVX-512 (or other wide
+// instructions) that a GitHub Actions VM may not actually support at runtime,
+// causing SIGILL.  To avoid this the bench workflow now uses
+//   RUSTFLAGS="-C target-feature=+avx2,+fma"
+// which is the widest feature set reliably present on every GH runner.
+//
+// On the Rust side, the fast variant is compiled only when `target_feature =
+// "avx2"` is known at compile time.  Without that flag the function degrades
+// gracefully to the scalar path — benchmarks stay valid, just without the
+// SIMD uplift.
+//
+// When AVX2 *is* enabled LLVM emits `vfmadd231ps` (FMA3) for the reduction,
+// giving ~3–5× throughput vs scalar f64 with ~1e-7 relative precision loss
+// (negligible for ranking decisions).
+
+/// Fast path: compiled only when `+avx2` is active.
+/// LLVM sees a fixed-size f32 array reduction and emits `vfmadd231ps` chains.
+#[cfg(target_feature = "avx2")]
 pub fn compute_weighted_score_fast(w: &ScoringWeights, c: &PostCandidate) -> f64 {
     let s = &c.phoenix_scores;
 
-    // Resolve video-duration-gated weights up-front (same logic as scalar).
     let vqv_w: f32 =
         if c.min_video_duration_ms.map_or(false, |ms| ms > w.min_video_duration_ms) {
             w.vqv as f32
@@ -212,8 +222,6 @@ pub fn compute_weighted_score_fast(w: &ScoringWeights, c: &PostCandidate) -> f64
             0.0
         };
 
-    // 22-element product array — LLVM fuses these into a vectorised reduction.
-    // Array initialisation is sequential; the *sum* is what gets vectorised.
     let products: [f32; 22] = [
         s.favorite_score.unwrap_or(0.0) as f32            * w.favorite            as f32,
         s.reply_score.unwrap_or(0.0) as f32               * w.reply               as f32,
@@ -239,9 +247,16 @@ pub fn compute_weighted_score_fast(w: &ScoringWeights, c: &PostCandidate) -> f64
         s.not_dwelled_score.unwrap_or(0.0) as f32         * w.not_dwelled         as f32,
     ];
 
-    // Reduction: LLVM emits vhaddps / vperm2f128 + horizontal add on AVX2.
     let combined: f32 = products.iter().copied().sum();
     offset_score(combined as f64, w)
+}
+
+/// Scalar fallback: used when AVX2 is not available at compile time.
+/// Results are identical to `compute_weighted_score`; the benchmark still
+/// runs cleanly but will show no SIMD uplift vs the scalar baseline.
+#[cfg(not(target_feature = "avx2"))]
+pub fn compute_weighted_score_fast(w: &ScoringWeights, c: &PostCandidate) -> f64 {
+    compute_weighted_score(w, c)
 }
 
 // ── Precomputed diversity table ───────────────────────────────────────────────
@@ -439,4 +454,4 @@ impl BloomFilter {
             self.bits[pos / 64] & (1u64 << (pos % 64)) != 0
         })
     }
-    }
+}
