@@ -39,17 +39,10 @@ jobs:
             ${{ runner.os }}-cargo-bench-
 
       # ── Compile all bench binaries once, loudly, into the log ────────────────
-      # This separates build noise from benchmark output so later tee calls
-      # only capture criterion's stdout (the bencher result lines).
-
       - name: Compile bench binaries
         run: cargo bench --no-run
 
-      # ── Run each bench binary — stdout → tee, build stderr already done ──────
-      # No 2>&1: cargo build output is already cached/done; criterion writes
-      # bencher lines to stdout only.  pipefail ensures a bench crash fails
-      # the step instead of silently producing an empty file.
-
+      # ── Run each bench binary ─────────────────────────────────────────────────
       - name: Run scoring benchmarks
         run: |
           set -o pipefail
@@ -69,10 +62,6 @@ jobs:
             | tee thunder_raw.txt
 
       # ── Extract only bencher lines and validate ───────────────────────────────
-      # criterion stdout in bencher mode contains both progress lines and the
-      # final "test NAME ... bench: X ns/iter" results.  We extract only the
-      # latter into bench_output.txt so the action gets a clean input.
-
       - name: Extract and validate bench results
         run: |
           grep -h '^test ' scoring_raw.txt pipeline_raw.txt thunder_raw.txt \
@@ -89,7 +78,6 @@ jobs:
           fi
 
       # ── Store results and push history to gh-pages ────────────────────────────
-
       - name: Store benchmark results
         uses: benchmark-action/github-action-benchmark@v1
         with:
@@ -104,28 +92,28 @@ jobs:
           gh-pages-branch: gh-pages
           benchmark-data-dir-path: dev/bench
 
-      # ── Deploy landing page — runs after benchmark-action guarantees gh-pages exists
-
-      - name: Checkout gh-pages branch
-        uses: actions/checkout@v4
-        with:
-          ref: gh-pages
-          path: gh-pages-dir
-          token: ${{ secrets.GITHUB_TOKEN }}
-
+      # ── Deploy landing page via git worktree (no extra network clone) ─────────
+      #
+      # benchmark-action already pushed dev/bench/ to gh-pages above.
+      # We fetch that updated branch locally and add index.html using a
+      # git worktree — a linked working directory of the branch that requires
+      # zero network traffic (the branch objects are already local after fetch).
       - name: Push landing page to gh-pages
         run: |
-          cp .github/x-bench-index.html gh-pages-dir/index.html
-          cd gh-pages-dir
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin gh-pages
+          git worktree add _gh_pages_wt gh-pages
+          cp .github/x-bench-index.html _gh_pages_wt/index.html
+          cd _gh_pages_wt
           git add index.html
           git diff --cached --quiet \
-            || git commit -m "Update bench landing page [skip ci]"
-          git push
+            || git commit -m "chore: update bench landing page [skip ci]"
+          git push origin gh-pages
+          cd ..
+          git worktree remove _gh_pages_wt
 
       # ── Publish step summary ──────────────────────────────────────────────────
-
       - name: Publish step summary
         if: always()
         run: |
@@ -163,20 +151,20 @@ jobs:
             echo ""
             echo "### mid-math SIMD Opportunity Map"
             echo ""
-            echo "| Hot Path | Current | SIMD Approach | Expected Gain |"
-            echo "|----------|---------|---------------|---------------|"
-            echo "| \`compute_weighted_score\` | 22 scalar mul-adds | 6× \`f32x4\` dot + hsum | 3–5× |"
-            echo "| \`offset_score\` (batch) | branch per candidate | \`f32x4::blend\` branchless | ~2× |"
-            echo "| \`diversity_multiplier\` | \`powf\` per candidate | precomputed table + \`f32x4\` mul | 4–8× |"
-            echo "| \`bloom may_contain\` | scalar hash loop | \`u32x4\` multiply + bit-extract | 2–3× |"
-            echo "| Score sort | scalar \`partial_cmp\` | SIMD radix pre-partition | 1.5–2× |"
+            echo "| Hot Path | Scalar (Build #20) | Optimised Path | Status |"
+            echo "|----------|--------------------|----------------|--------|"
+            echo "| \`compute_weighted_score\` | ~14 ns (22 scalar mul-adds) | 6× \`f32x4\` mul + hsum (SSE2) | ✅ implemented |"
+            echo "| \`diversity_multiplier\` | ~51 ns/cand (powf × N) | precomputed \`[f64;256]\` table | ✅ implemented |"
+            echo "| top-K selection (2000→50) | full \`sort_unstable\` | \`select_nth_unstable_by\` + partial sort | ✅ implemented |"
+            echo "| \`offset_score\` (batch) | branch per candidate | \`f32x4::blend\` branchless | 🔲 todo |"
+            echo "| \`bloom may_contain\` | scalar hash loop | \`u32x4\` multiply + bit-extract | 🔲 todo |"
+            echo "| DashMap double-lookup | per-user lock + per-post lookup | batch key prefetch / slab | 🔲 todo |"
             echo ""
             repo_name=$(echo '${{ github.repository }}' | cut -d'/' -f2)
             echo "> [📊 Full benchmark history](https://${{ github.repository_owner }}.github.io/${repo_name}/dev/bench/)"
           } >> $GITHUB_STEP_SUMMARY
 
       # ── Artifacts ─────────────────────────────────────────────────────────────
-
       - name: Upload criterion HTML reports
         if: always()
         uses: actions/upload-artifact@v4
