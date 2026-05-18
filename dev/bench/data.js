@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779110851639,
+  "lastUpdate": 1779135144693,
   "repoUrl": "https://github.com/Mid-D-Man/x-algorithm",
   "entries": {
     "X Algorithm Benchmarks": [
@@ -351,6 +351,210 @@ window.BENCHMARK_DATA = {
             "name": "thunder/trim_old_posts/100k_posts_90pct_expired",
             "value": 18982,
             "range": "± 974",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "94022993+Mid-D-Man@users.noreply.github.com",
+            "name": "AbdulHamid Mamman Suleiman",
+            "username": "Mid-D-Man"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "f5a4be0f620974d15b1d7affc373249332110a81",
+          "message": "Update bench.yml",
+          "timestamp": "2026-05-18T21:06:12+01:00",
+          "tree_id": "0acdd376b273929a738de45243aad1c06361c82a",
+          "url": "https://github.com/Mid-D-Man/x-algorithm/commit/f5a4be0f620974d15b1d7affc373249332110a81"
+        },
+        "date": 1779135144250,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "scoring/weighted_score/single_candidate",
+            "value": 14,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/weighted_score/batch_500",
+            "value": 5922,
+            "range": "± 137",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/weighted_score/batch_2000",
+            "value": 25790,
+            "range": "± 272",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/weighted_score_simd/single_candidate",
+            "value": 24,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/weighted_score_simd/batch_500",
+            "value": 12398,
+            "range": "± 89",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/weighted_score_simd/batch_2000",
+            "value": 50445,
+            "range": "± 4221",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/author_diversity/500_candidates",
+            "value": 20259,
+            "range": "± 199",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/author_diversity/2000_candidates",
+            "value": 101914,
+            "range": "± 720",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/author_diversity_table/500_candidates",
+            "value": 14643,
+            "range": "± 114",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/author_diversity_table/2000_candidates",
+            "value": 78414,
+            "range": "± 526",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/offset_score/1000_scores",
+            "value": 1704,
+            "range": "± 179",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/sort_candidates/sort_500",
+            "value": 30335,
+            "range": "± 316",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/sort_candidates/sort_1000",
+            "value": 63803,
+            "range": "± 1863",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/sort_candidates/sort_2000",
+            "value": 141934,
+            "range": "± 11606",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/top_k_select/2000_to_top_50",
+            "value": 3679,
+            "range": "± 80",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/top_k_select/2000_to_top_100",
+            "value": 4268,
+            "range": "± 53",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/top_k_select/2000_to_top_200",
+            "value": 5618,
+            "range": "± 55",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/full_pipeline/2000_candidates_to_top50",
+            "value": 146132,
+            "range": "± 1379",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/full_pipeline_optimised/2000_candidates_to_top50",
+            "value": 123721,
+            "range": "± 916",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pipeline/bloom_filter/2000_lookups",
+            "value": 8946,
+            "range": "± 34",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pipeline/bloom_filter/500_lookups",
+            "value": 2227,
+            "range": "± 3",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pipeline/drop_duplicates/2200_with_200_dupes",
+            "value": 686191,
+            "range": "± 1569",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pipeline/dedup_conversation/2000_candidates_30pct_replies",
+            "value": 187272,
+            "range": "± 1528",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pipeline/socialgraph_filter/2000_candidates",
+            "value": 118095,
+            "range": "± 680",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "thunder/score_recent/10000_posts_top_200",
+            "value": 10941,
+            "range": "± 103",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "thunder/score_recent/50000_posts_top_200",
+            "value": 58467,
+            "range": "± 7216",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "thunder/score_recent/100000_posts_top_400",
+            "value": 114965,
+            "range": "± 936",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "thunder/dashmap_post_store/500_following_20_posts_each",
+            "value": 562944,
+            "range": "± 9542",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "thunder/trim_old_posts/100k_posts_none_expired",
+            "value": 122944,
+            "range": "± 2642",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "thunder/trim_old_posts/100k_posts_90pct_expired",
+            "value": 24138,
+            "range": "± 749",
             "unit": "ns/iter"
           }
         ]
