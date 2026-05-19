@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1779158944294,
+  "lastUpdate": 1779159046271,
   "repoUrl": "https://github.com/Mid-D-Man/x-algorithm",
   "entries": {
     "X Algorithm Benchmarks": [
@@ -1167,6 +1167,240 @@ window.BENCHMARK_DATA = {
             "name": "thunder/trim_old_posts/100k_posts_90pct_expired",
             "value": 23733,
             "range": "± 571",
+            "unit": "ns/iter"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "94022993+Mid-D-Man@users.noreply.github.com",
+            "name": "AbdulHamid Mamman Suleiman",
+            "username": "Mid-D-Man"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "ddb1c31c35e3717853aa8cfe58c2d207aa7f7e14",
+          "message": "Update scoring_bench.rs",
+          "timestamp": "2026-05-19T03:43:44+01:00",
+          "tree_id": "373ad0207a31a44eed4481a8f0a9c260da278115",
+          "url": "https://github.com/Mid-D-Man/x-algorithm/commit/ddb1c31c35e3717853aa8cfe58c2d207aa7f7e14"
+        },
+        "date": 1779159045748,
+        "tool": "cargo",
+        "benches": [
+          {
+            "name": "scoring/weighted_score/single_candidate",
+            "value": 14,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/weighted_score/batch_500",
+            "value": 6309,
+            "range": "± 1238",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/weighted_score/batch_2000",
+            "value": 26481,
+            "range": "± 639",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/weighted_score_aos_f32/single_candidate",
+            "value": 32,
+            "range": "± 0",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/weighted_score_aos_f32/batch_500",
+            "value": 15168,
+            "range": "± 211",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/weighted_score_aos_f32/batch_2000",
+            "value": 61998,
+            "range": "± 10508",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/weighted_score_soa/batch_500",
+            "value": 712,
+            "range": "± 1",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/weighted_score_soa/batch_2000",
+            "value": 2609,
+            "range": "± 7",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/weighted_score_soa_with_build/batch_500",
+            "value": 16738,
+            "range": "± 132",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/weighted_score_soa_with_build/batch_2000",
+            "value": 63913,
+            "range": "± 666",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/author_diversity/500_candidates",
+            "value": 21625,
+            "range": "± 590",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/author_diversity/2000_candidates",
+            "value": 111735,
+            "range": "± 8991",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/author_diversity_table/500_candidates",
+            "value": 14307,
+            "range": "± 631",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/author_diversity_table/2000_candidates",
+            "value": 79603,
+            "range": "± 1182",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/offset_score/1000_scores",
+            "value": 1489,
+            "range": "± 152",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/sort_candidates/sort_500",
+            "value": 29905,
+            "range": "± 496",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/sort_candidates/sort_1000",
+            "value": 74269,
+            "range": "± 945",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/sort_candidates/sort_2000",
+            "value": 211989,
+            "range": "± 2380",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/top_k_select/2000_to_top_50",
+            "value": 3447,
+            "range": "± 25",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/top_k_select/2000_to_top_100",
+            "value": 3957,
+            "range": "± 33",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/top_k_select/2000_to_top_200",
+            "value": 5102,
+            "range": "± 36",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/full_pipeline/2000_candidates_to_top50",
+            "value": 158690,
+            "range": "± 1182",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/full_pipeline_optimised/2000_candidates_to_top50",
+            "value": 136745,
+            "range": "± 664",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "scoring/full_pipeline_soa/2000_candidates_to_top50",
+            "value": 147590,
+            "range": "± 709",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pipeline/bloom_filter/2000_lookups",
+            "value": 7883,
+            "range": "± 12",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pipeline/bloom_filter/500_lookups",
+            "value": 1956,
+            "range": "± 2",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pipeline/drop_duplicates/2200_with_200_dupes",
+            "value": 610515,
+            "range": "± 6585",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pipeline/dedup_conversation/2000_candidates_30pct_replies",
+            "value": 193957,
+            "range": "± 2137",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "pipeline/socialgraph_filter/2000_candidates",
+            "value": 123030,
+            "range": "± 1414",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "thunder/score_recent/10000_posts_top_200",
+            "value": 8146,
+            "range": "± 133",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "thunder/score_recent/50000_posts_top_200",
+            "value": 52115,
+            "range": "± 1356",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "thunder/score_recent/100000_posts_top_400",
+            "value": 104899,
+            "range": "± 1171",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "thunder/dashmap_post_store/500_following_20_posts_each",
+            "value": 567868,
+            "range": "± 2612",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "thunder/trim_old_posts/100k_posts_none_expired",
+            "value": 132664,
+            "range": "± 2999",
+            "unit": "ns/iter"
+          },
+          {
+            "name": "thunder/trim_old_posts/100k_posts_90pct_expired",
+            "value": 20339,
+            "range": "± 778",
             "unit": "ns/iter"
           }
         ]
