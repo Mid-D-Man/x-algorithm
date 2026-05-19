@@ -32,18 +32,18 @@ pub struct PhoenixScores {
 // ── Post candidate ────────────────────────────────────────────────────────────
 #[derive(Clone, Debug, Default)]
 pub struct PostCandidate {
-    pub tweet_id:              u64,
-    pub author_id:             u64,
-    pub in_network:            Option<bool>,
-    pub weighted_score:        Option<f64>,
-    pub score:                 Option<f64>,
-    pub min_video_duration_ms: Option<i32>,
+    pub tweet_id:                 u64,
+    pub author_id:                u64,
+    pub in_network:               Option<bool>,
+    pub weighted_score:           Option<f64>,
+    pub score:                    Option<f64>,
+    pub min_video_duration_ms:    Option<i32>,
     pub quoted_video_duration_ms: Option<i32>,
-    pub retweeted_tweet_id:    Option<u64>,
-    pub quoted_tweet_id:       Option<u64>,
-    pub in_reply_to_tweet_id:  Option<u64>,
-    pub ancestors:             Vec<u64>,
-    pub phoenix_scores:        PhoenixScores,
+    pub retweeted_tweet_id:       Option<u64>,
+    pub quoted_tweet_id:          Option<u64>,
+    pub in_reply_to_tweet_id:     Option<u64>,
+    pub ancestors:                Vec<u64>,
+    pub phoenix_scores:           PhoenixScores,
 }
 
 // ── Scoring weights (mirrors RankingScorer params) ────────────────────────────
@@ -95,7 +95,7 @@ impl Default for ScoringWeights {
         let quoted_click        = 0.2;
         let quoted_vqv          = 0.3;
         let cont_dwell_time     = 0.01;
-        let cont_click_dwell   = 0.01;
+        let cont_click_dwell    = 0.01;
         let follow_author       = 2.0;
         let not_interested      = -0.3;
         let block_author        = -1.0;
@@ -122,7 +122,7 @@ impl Default for ScoringWeights {
     }
 }
 
-// ── Core scoring logic — scalar f64 (mirrors ranking_scorer.rs) ───────────────
+// ── Core scoring logic — scalar f64 baseline ─────────────────────────────────
 #[inline(always)]
 pub fn apply(score: Option<f64>, weight: f64) -> f64 {
     score.unwrap_or(0.0) * weight
@@ -181,31 +181,17 @@ pub fn diversity_multiplier(decay: f64, floor: f64, position: usize) -> f64 {
     (1.0 - floor) * decay.powf(position as f64) + floor
 }
 
-// ── Auto-vectorised weighted score (f32 promotion, AVX2 path) ────────────────
+// ── AoS f32 variant — kept as a comparison baseline ──────────────────────────
 //
-// Widening scores from f64 → f32 and packing into a 22-element array turns
-// the multiply-adds into a textbook dot-product that LLVM auto-vectorises.
+// RESULT (build #29): this is 2.3× SLOWER than the scalar f64 path above.
 //
-// Safety / SIGILL note
-// ────────────────────
-// `target-cpu=native` can instruct LLVM to emit AVX-512 (or other wide
-// instructions) that a GitHub Actions VM may not actually support at runtime,
-// causing SIGILL.  To avoid this the bench workflow now uses
-//   RUSTFLAGS="-C target-feature=+avx2,+fma"
-// which is the widest feature set reliably present on every GH runner.
+// Why it loses:
+//   • 22 sequential f64→f32 widening conversions per candidate
+//   • All 22 products written to a stack array, then re-read for .sum()
+//   • LLVM can vectorize the 22-element sum (~3 AVX2 ops) but still loops
+//     one candidate at a time — no vectorization across the candidate batch
 //
-// On the Rust side, the fast variant is compiled only when `target_feature =
-// "avx2"` is known at compile time.  Without that flag the function degrades
-// gracefully to the scalar path — benchmarks stay valid, just without the
-// SIMD uplift.
-//
-// When AVX2 *is* enabled LLVM emits `vfmadd231ps` (FMA3) for the reduction,
-// giving ~3–5× throughput vs scalar f64 with ~1e-7 relative precision loss
-// (negligible for ranking decisions).
-
-/// Fast path: compiled only when `+avx2` is active.
-/// LLVM sees a fixed-size f32 array reduction and emits `vfmadd231ps` chains.
-#[cfg(target_feature = "avx2")]
+// The correct way to vectorize across candidates is Struct-of-Arrays (below).
 pub fn compute_weighted_score_fast(w: &ScoringWeights, c: &PostCandidate) -> f64 {
     let s = &c.phoenix_scores;
 
@@ -251,32 +237,186 @@ pub fn compute_weighted_score_fast(w: &ScoringWeights, c: &PostCandidate) -> f64
     offset_score(combined as f64, w)
 }
 
-/// Scalar fallback: used when AVX2 is not available at compile time.
-/// Results are identical to `compute_weighted_score`; the benchmark still
-/// runs cleanly but will show no SIMD uplift vs the scalar baseline.
-#[cfg(not(target_feature = "avx2"))]
-pub fn compute_weighted_score_fast(w: &ScoringWeights, c: &PostCandidate) -> f64 {
-    compute_weighted_score(w, c)
+// ── Struct-of-Arrays Phoenix scores ──────────────────────────────────────────
+//
+// AoS layout (PostCandidate slice): scores for candidate-0 sit next to
+// candidate-0's author_id, tweet_id, ancestors, etc. — struct fields are
+// ~500 bytes apart in memory for adjacent candidates.  LLVM can only
+// vectorize the 22-term inner sum (~3 AVX2 ops) and must fetch a new cache
+// line for each candidate.
+//
+// SoA layout (this struct): all favorite_scores are contiguous, all
+// reply_scores are contiguous, etc.  To score N candidates we make 22 passes;
+// each pass is a tight loop over a contiguous Vec<f32> that LLVM auto-
+// vectorizes to `vfmadd231ps ymm` — 8 candidates per instruction.
+//
+//   22 passes × ceil(N/8) AVX2 ops  vs  N × (22/8) AVX2 ops for AoS
+//
+// The instruction counts are similar (~2.75N each), but SoA streams memory
+// sequentially and fits entirely in L2 for N=2000 (176 KB vs ~1 MB for AoS),
+// giving substantially better throughput.
+//
+// Construction cost: one scatter pass over the AoS slice (N × 22 reads +
+// 22 contiguous writes).  Amortised cheaply across a full request.
+#[derive(Debug, Default)]
+pub struct PhoenixScoresSoA {
+    pub favorite_score:            Vec<f32>,
+    pub reply_score:               Vec<f32>,
+    pub retweet_score:             Vec<f32>,
+    pub photo_expand_score:        Vec<f32>,
+    pub click_score:               Vec<f32>,
+    pub profile_click_score:       Vec<f32>,
+    /// Zero for ineligible video candidates; score × 1.0 for eligible.
+    /// Multiplied by w.vqv in the scoring pass (scalar broadcast).
+    pub vqv_score:                 Vec<f32>,
+    pub share_score:               Vec<f32>,
+    pub share_via_dm_score:        Vec<f32>,
+    pub share_via_copy_link_score: Vec<f32>,
+    pub dwell_score:               Vec<f32>,
+    pub quote_score:               Vec<f32>,
+    pub quoted_click_score:        Vec<f32>,
+    /// Zero for ineligible quoted-video candidates.
+    pub quoted_vqv_score:          Vec<f32>,
+    pub follow_author_score:       Vec<f32>,
+    pub not_interested_score:      Vec<f32>,
+    pub block_author_score:        Vec<f32>,
+    pub mute_author_score:         Vec<f32>,
+    pub report_score:              Vec<f32>,
+    pub not_dwelled_score:         Vec<f32>,
+    pub dwell_time:                Vec<f32>,
+    pub click_dwell_time:          Vec<f32>,
+    pub len: usize,
+}
+
+impl PhoenixScoresSoA {
+    /// Scatter one AoS slice into SoA layout.
+    /// VQV eligibility is resolved here so the scoring pass needs no branches.
+    pub fn from_candidates(candidates: &[PostCandidate], w: &ScoringWeights) -> Self {
+        let n = candidates.len();
+        let mut s = PhoenixScoresSoA {
+            favorite_score:            Vec::with_capacity(n),
+            reply_score:               Vec::with_capacity(n),
+            retweet_score:             Vec::with_capacity(n),
+            photo_expand_score:        Vec::with_capacity(n),
+            click_score:               Vec::with_capacity(n),
+            profile_click_score:       Vec::with_capacity(n),
+            vqv_score:                 Vec::with_capacity(n),
+            share_score:               Vec::with_capacity(n),
+            share_via_dm_score:        Vec::with_capacity(n),
+            share_via_copy_link_score: Vec::with_capacity(n),
+            dwell_score:               Vec::with_capacity(n),
+            quote_score:               Vec::with_capacity(n),
+            quoted_click_score:        Vec::with_capacity(n),
+            quoted_vqv_score:          Vec::with_capacity(n),
+            follow_author_score:       Vec::with_capacity(n),
+            not_interested_score:      Vec::with_capacity(n),
+            block_author_score:        Vec::with_capacity(n),
+            mute_author_score:         Vec::with_capacity(n),
+            report_score:              Vec::with_capacity(n),
+            not_dwelled_score:         Vec::with_capacity(n),
+            dwell_time:                Vec::with_capacity(n),
+            click_dwell_time:          Vec::with_capacity(n),
+            len: n,
+        };
+        for c in candidates {
+            let ps = &c.phoenix_scores;
+            // Resolve VQV eligibility once per candidate so the hot scoring
+            // loop has no branches — ineligible candidates get score 0.0 and
+            // still participate in the fma_pass without skewing results.
+            let vqv_eligible = c.min_video_duration_ms
+                .map_or(false, |ms| ms > w.min_video_duration_ms);
+            let qvqv_eligible = c.quoted_video_duration_ms
+                .map_or(false, |ms| ms > w.min_video_duration_ms);
+
+            s.favorite_score.push(ps.favorite_score.unwrap_or(0.0) as f32);
+            s.reply_score.push(ps.reply_score.unwrap_or(0.0) as f32);
+            s.retweet_score.push(ps.retweet_score.unwrap_or(0.0) as f32);
+            s.photo_expand_score.push(ps.photo_expand_score.unwrap_or(0.0) as f32);
+            s.click_score.push(ps.click_score.unwrap_or(0.0) as f32);
+            s.profile_click_score.push(ps.profile_click_score.unwrap_or(0.0) as f32);
+            s.vqv_score.push(
+                if vqv_eligible { ps.vqv_score.unwrap_or(0.0) as f32 } else { 0.0 }
+            );
+            s.share_score.push(ps.share_score.unwrap_or(0.0) as f32);
+            s.share_via_dm_score.push(ps.share_via_dm_score.unwrap_or(0.0) as f32);
+            s.share_via_copy_link_score.push(ps.share_via_copy_link_score.unwrap_or(0.0) as f32);
+            s.dwell_score.push(ps.dwell_score.unwrap_or(0.0) as f32);
+            s.quote_score.push(ps.quote_score.unwrap_or(0.0) as f32);
+            s.quoted_click_score.push(ps.quoted_click_score.unwrap_or(0.0) as f32);
+            s.quoted_vqv_score.push(
+                if qvqv_eligible { ps.quoted_vqv_score.unwrap_or(0.0) as f32 } else { 0.0 }
+            );
+            s.follow_author_score.push(ps.follow_author_score.unwrap_or(0.0) as f32);
+            s.not_interested_score.push(ps.not_interested_score.unwrap_or(0.0) as f32);
+            s.block_author_score.push(ps.block_author_score.unwrap_or(0.0) as f32);
+            s.mute_author_score.push(ps.mute_author_score.unwrap_or(0.0) as f32);
+            s.report_score.push(ps.report_score.unwrap_or(0.0) as f32);
+            s.not_dwelled_score.push(ps.not_dwelled_score.unwrap_or(0.0) as f32);
+            s.dwell_time.push(ps.dwell_time.unwrap_or(0.0) as f32);
+            s.click_dwell_time.push(ps.click_dwell_time.unwrap_or(0.0) as f32);
+        }
+        s
+    }
+}
+
+/// One vectorised multiply-accumulate pass over all N candidates for a single
+/// weight.  LLVM emits `vfmadd231ps ymm` (8-wide f32 FMA) with a scalar
+/// broadcast of `w` when compiled with AVX2+FMA.
+#[inline(always)]
+fn fma_pass(out: &mut [f32], src: &[f32], w: f32) {
+    for (o, &s) in out.iter_mut().zip(src) {
+        *o += s * w;
+    }
+}
+
+/// Batch weighted score over N candidates using SoA layout.
+///
+/// Makes 22 `fma_pass` calls — one per weight — each vectorized 8-wide across
+/// candidates.  Returns raw f32 combined scores (before `offset_score`).
+/// Call `apply_offset_scores` to convert to the final f64 pipeline output.
+pub fn compute_batch_weighted_scores_soa(w: &ScoringWeights, s: &PhoenixScoresSoA) -> Vec<f32> {
+    let n = s.len;
+    let mut out = vec![0.0f32; n];
+
+    fma_pass(&mut out, &s.favorite_score,            w.favorite            as f32);
+    fma_pass(&mut out, &s.reply_score,               w.reply               as f32);
+    fma_pass(&mut out, &s.retweet_score,             w.retweet             as f32);
+    fma_pass(&mut out, &s.photo_expand_score,        w.photo_expand        as f32);
+    fma_pass(&mut out, &s.click_score,               w.click               as f32);
+    fma_pass(&mut out, &s.profile_click_score,       w.profile_click       as f32);
+    fma_pass(&mut out, &s.vqv_score,                 w.vqv                 as f32);
+    fma_pass(&mut out, &s.share_score,               w.share               as f32);
+    fma_pass(&mut out, &s.share_via_dm_score,        w.share_via_dm        as f32);
+    fma_pass(&mut out, &s.share_via_copy_link_score, w.share_via_copy_link as f32);
+    fma_pass(&mut out, &s.dwell_score,               w.dwell               as f32);
+    fma_pass(&mut out, &s.quote_score,               w.quote               as f32);
+    fma_pass(&mut out, &s.quoted_click_score,        w.quoted_click        as f32);
+    fma_pass(&mut out, &s.quoted_vqv_score,          w.quoted_vqv          as f32);
+    fma_pass(&mut out, &s.follow_author_score,       w.follow_author       as f32);
+    fma_pass(&mut out, &s.not_interested_score,      w.not_interested      as f32);
+    fma_pass(&mut out, &s.block_author_score,        w.block_author        as f32);
+    fma_pass(&mut out, &s.mute_author_score,         w.mute_author         as f32);
+    fma_pass(&mut out, &s.report_score,              w.report              as f32);
+    fma_pass(&mut out, &s.not_dwelled_score,         w.not_dwelled         as f32);
+    fma_pass(&mut out, &s.dwell_time,                w.cont_dwell_time     as f32);
+    fma_pass(&mut out, &s.click_dwell_time,          w.cont_click_dwell_time as f32);
+
+    out
+}
+
+/// Convert raw SoA combined f32 scores → final f64 pipeline scores.
+/// This is the same `offset_score` normalisation applied per-element.
+pub fn apply_offset_scores(combined: &[f32], w: &ScoringWeights) -> Vec<f64> {
+    combined.iter().map(|&c| offset_score(c as f64, w)).collect()
 }
 
 // ── Precomputed diversity table ───────────────────────────────────────────────
-//
-// The diversity multiplier for author appearance count `p` is:
-//   (1 - floor) * decay^p + floor
-//
-// Paying one `powf` per candidate dominates `author_diversity` at ~50 ns/call.
-// Build this table once per request (outside the candidate loop); each lookup
-// is then a bounds-checked array index at ~1 ns.
-
 pub struct DiversityTable {
     multipliers: Vec<f64>,
     floor: f64,
 }
 
 impl DiversityTable {
-    /// Precompute multipliers for positions 0..max_positions.
-    /// `max_positions = 64` covers any realistic per-author repeat count in a
-    /// 2000-candidate window.
     pub fn new(decay: f64, floor: f64, max_positions: usize) -> Self {
         let multipliers = (0..max_positions)
             .map(|i| (1.0 - floor) * decay.powf(i as f64) + floor)
@@ -286,14 +426,10 @@ impl DiversityTable {
 
     #[inline(always)]
     pub fn get(&self, position: usize) -> f64 {
-        // Positions beyond the table are so heavily attenuated they are
-        // effectively at floor — no meaningful loss clamping here.
         self.multipliers.get(position).copied().unwrap_or(self.floor)
     }
 }
 
-/// Author diversity using a precomputed multiplier table.
-/// Drops the `powf` per candidate; otherwise identical to the baseline.
 pub fn apply_author_diversity_table(
     candidates: &[PostCandidate],
     weighted_scores: &[f64],
@@ -314,7 +450,7 @@ pub fn apply_author_diversity_table(
     for idx in order {
         let c = &candidates[idx];
         let entry = author_counts.entry(c.author_id).or_insert(0);
-        let mult = table.get(*entry); // O(1) — no powf
+        let mult = table.get(*entry);
         *entry += 1;
 
         let score = weighted_scores[idx] * mult;
@@ -327,15 +463,6 @@ pub fn apply_author_diversity_table(
 }
 
 // ── Top-K partial sort ────────────────────────────────────────────────────────
-//
-// `sort_unstable_by` on 2000 elements costs ~170 μs sorting all 2000 even
-// though only 50 will be served.
-//
-// `select_nth_unstable_by` (stable since Rust 1.64, O(n) average) partitions
-// in one pass so that [0..k] contains the k largest elements. We then sort
-// only that small slice — typically 15–30× faster for small k/n ratios.
-
-/// Return the top `k` `(score, index)` pairs sorted descending.
 pub fn top_k_by_score(mut indexed: Vec<(f64, usize)>, k: usize) -> Vec<(f64, usize)> {
     if k == 0 {
         return Vec::new();
@@ -347,8 +474,6 @@ pub fn top_k_by_score(mut indexed: Vec<(f64, usize)>, k: usize) -> Vec<(f64, usi
         });
         return indexed;
     }
-    // Partition: after this call, elements [0..k] are the k largest
-    // (in unspecified order) and element at index k is the (k+1)-th largest.
     indexed.select_nth_unstable_by(k, |a, b| {
         b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal)
     });
@@ -359,7 +484,7 @@ pub fn top_k_by_score(mut indexed: Vec<(f64, usize)>, k: usize) -> Vec<(f64, usi
     top
 }
 
-// ── Thunder light post (mirrors thunder/posts/post_store.rs) ──────────────────
+// ── Thunder light post ────────────────────────────────────────────────────────
 #[derive(Clone, Debug)]
 pub struct LightPost {
     pub post_id:    i64,
@@ -419,7 +544,7 @@ pub fn make_light_posts(n: usize) -> Vec<LightPost> {
         .collect()
 }
 
-// ── Bloom filter (mirrors xai_candidate_pipeline BloomFilter) ─────────────────
+// ── Bloom filter ──────────────────────────────────────────────────────────────
 pub struct BloomFilter {
     bits: Vec<u64>,
     num_hashes: u32,
