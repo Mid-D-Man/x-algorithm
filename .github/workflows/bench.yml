@@ -10,14 +10,12 @@ on:
 
 env:
   CARGO_TERM_COLOR: never
-  # ── Changed from "-C target-cpu=native" ──────────────────────────────────
-  # target-cpu=native asks the compiler to emit the widest instructions the
-  # *compile-host* CPU supports (potentially AVX-512 on some GH runners) and
-  # then assumes the *run-host* supports them too.  When those are different
-  # VMs the result is SIGILL.  Pinning to +avx2,+fma gives the same ~3-5×
-  # throughput win for the scoring hot-path while staying within the feature
-  # set that every x86-64 GitHub Actions runner has supported since 2019.
-  RUSTFLAGS: "-C target-feature=+avx2,+fma"
+  # x86-64-v3 = AVX + AVX2 + FMA + BMI1 + BMI2 + F16C + LZCNT + POPCNT + SSE4.2
+  # Stable, well-defined baseline supported on every GH Actions x86-64 runner
+  # since ~2019. Restores sort/HashMap/DashMap performance lost when we dropped
+  # from native to +avx2,+fma only (BMI2 matters a lot for pdqsort and HashBrown).
+  # Does NOT enable AVX-512, which caused the SIGILL in #27.
+  RUSTFLAGS: "-C target-cpu=x86-64-v3"
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
@@ -46,11 +44,9 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-bench-
 
-      # ── Compile all bench binaries once, loudly, into the log ────────────────
       - name: Compile bench binaries
         run: cargo bench --no-run
 
-      # ── Run each bench binary ─────────────────────────────────────────────────
       - name: Run scoring benchmarks
         run: |
           set -o pipefail
@@ -69,7 +65,6 @@ jobs:
           cargo bench --bench thunder_bench -- --output-format bencher \
             | tee thunder_raw.txt
 
-      # ── Extract only bencher lines and validate ───────────────────────────────
       - name: Extract and validate bench results
         run: |
           grep -h '^test ' scoring_raw.txt pipeline_raw.txt thunder_raw.txt \
@@ -85,7 +80,6 @@ jobs:
             exit 1
           fi
 
-      # ── Store results and push history to gh-pages ────────────────────────────
       - name: Store benchmark results
         uses: benchmark-action/github-action-benchmark@v1
         with:
@@ -100,12 +94,6 @@ jobs:
           gh-pages-branch: gh-pages
           benchmark-data-dir-path: dev/bench
 
-      # ── Deploy landing page via git worktree (no extra network clone) ─────────
-      #
-      # benchmark-action already pushed dev/bench/ to gh-pages above.
-      # We fetch that updated branch locally and add index.html using a
-      # git worktree — a linked working directory of the branch that requires
-      # zero network traffic (the branch objects are already local after fetch).
       - name: Push landing page to gh-pages
         run: |
           git config user.name  "github-actions[bot]"
@@ -121,7 +109,6 @@ jobs:
           cd ..
           git worktree remove _gh_pages_wt
 
-      # ── Publish step summary ──────────────────────────────────────────────────
       - name: Publish step summary
         if: always()
         run: |
@@ -151,8 +138,8 @@ jobs:
               echo ""
             }
 
-            emit_table "Scoring / Ranking" scoring_raw.txt
-            emit_table "Filter Pipeline"   pipeline_raw.txt
+            emit_table "Scoring / Ranking"  scoring_raw.txt
+            emit_table "Filter Pipeline"    pipeline_raw.txt
             emit_table "Thunder Post Store" thunder_raw.txt
 
             echo "---"
@@ -161,10 +148,10 @@ jobs:
             echo ""
             echo "| Hot Path | Scalar (Build #20) | Optimised Path | Status |"
             echo "|----------|--------------------|----------------|--------|"
-            echo "| \`compute_weighted_score\` | ~14 ns (22 scalar mul-adds) | 6× \`f32x4\` mul + hsum (AVX2) | ✅ implemented |"
+            echo "| \`compute_weighted_score\` (batch) | ~14 ns/cand scalar | SoA 22× fma_pass → vfmadd231ps ymm | ✅ implemented |"
             echo "| \`diversity_multiplier\` | ~51 ns/cand (powf × N) | precomputed \`[f64;256]\` table | ✅ implemented |"
             echo "| top-K selection (2000→50) | full \`sort_unstable\` | \`select_nth_unstable_by\` + partial sort | ✅ implemented |"
-            echo "| \`offset_score\` (batch) | branch per candidate | \`f32x4::blend\` branchless | 🔲 todo |"
+            echo "| \`offset_score\` (batch) | branch per candidate | branchless blend via SoA post-pass | 🔲 todo |"
             echo "| \`bloom may_contain\` | scalar hash loop | \`u32x4\` multiply + bit-extract | 🔲 todo |"
             echo "| DashMap double-lookup | per-user lock + per-post lookup | batch key prefetch / slab | 🔲 todo |"
             echo ""
@@ -172,7 +159,6 @@ jobs:
             echo "> [📊 Full benchmark history](https://${{ github.repository_owner }}.github.io/${repo_name}/dev/bench/)"
           } >> $GITHUB_STEP_SUMMARY
 
-      # ── Artifacts ─────────────────────────────────────────────────────────────
       - name: Upload criterion HTML reports
         if: always()
         uses: actions/upload-artifact@v4
